@@ -3,8 +3,8 @@ export type LangKey = 'no' | 'en';
 export const translations = {
   no: {
     // App
-    appName: 'HomeLog',
-    tagline: 'Boligens digitale hukommelse',
+    appName: 'Husbok',
+    tagline: 'Din digitale husbok',
 
     // Nav
     nav: {
@@ -17,7 +17,7 @@ export const translations = {
 
     // Home screen
     greeting: 'Hei',
-    subtitle: 'Bolighukommelse',
+    subtitle: 'Husbok',
     taglineHome: 'Alt om boligen din. Alltid klart.',
     primaryProperty: 'Primær Eiendom',
     active: '● Aktiv',
@@ -227,8 +227,8 @@ export const translations = {
   },
 
   en: {
-    appName: 'HomeLog',
-    tagline: 'Your home\'s digital memory',
+    appName: 'Husbok',
+    tagline: 'Your home\'s digital record',
 
     nav: {
       home: 'Home',
