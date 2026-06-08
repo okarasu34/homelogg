@@ -37,12 +37,8 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{t.greeting}, Ahmed 👋</Text>
-            <Text style={styles.title}>{t.subtitle}</Text>
-            <Text style={styles.tagline}>{t.taglineHome}</Text>
-          </View>
+        <View style={styles.headerTop}>
+          <Text style={styles.greeting}>{t.greeting}, Bjørn 👋</Text>
           <TouchableOpacity
             onPress={() => setLang(lang === 'no' ? 'en' : 'no')}
             style={styles.langBtn}
@@ -51,6 +47,18 @@ export default function HomeScreen() {
               {lang === 'no' ? '🇬🇧 EN' : '🇳🇴 NO'}
             </Text>
           </TouchableOpacity>
+        </View>
+        <View style={styles.logoRow}>
+          <View style={styles.logoWrap}>
+            <View style={styles.logoRoof} />
+            <View style={styles.logoBodyLeft} />
+            <View style={styles.logoBodyRight} />
+            <View style={styles.logoDoor} />
+          </View>
+          <View>
+            <Text style={styles.title}>{t.subtitle}</Text>
+            <Text style={styles.tagline}>{t.taglineHome}</Text>
+          </View>
         </View>
 
         {/* Property Card */}
@@ -208,11 +216,63 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
 
-  header: {
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     marginBottom: 20,
+  },
+  logoWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e8e5df',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  logoRoof: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 22,
+    backgroundColor: '#2d6a4f',
+    borderTopLeftRadius: 11,
+    borderTopRightRadius: 11,
+  },
+  logoBodyLeft: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 24,
+    height: 26,
+    backgroundColor: '#e8610a',
+  },
+  logoBodyRight: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 26,
+    backgroundColor: '#2d6a4f',
+  },
+  logoDoor: {
+    position: 'absolute',
+    bottom: 0,
+    left: 17,
+    width: 14,
+    height: 16,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 7,
+    borderTopRightRadius: 7,
   },
   greeting: { color: Colors.textSub, fontSize: 13, fontWeight: '600' },
   title: { color: Colors.text, fontSize: 26, fontWeight: '900', lineHeight: 32 },
