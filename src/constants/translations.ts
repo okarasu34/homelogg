@@ -18,7 +18,7 @@ export const translations = {
     // Home screen
     greeting: 'Hei',
     subtitle: 'Husbok',
-    taglineHome: 'Alt om boligen din. Alltid klart.',
+    taglineHome: 'Din bolig. Din historikk.',
     primaryProperty: 'Primær Eiendom',
     active: '● Aktiv',
     qrReady: 'QR Klar',
@@ -240,7 +240,7 @@ export const translations = {
 
     greeting: 'Hello',
     subtitle: 'Home Memory',
-    taglineHome: 'Everything about your home. Always ready.',
+    taglineHome: 'Your home. Your history.',
     primaryProperty: 'Primary Property',
     active: '● Active',
     qrReady: 'QR Ready',
