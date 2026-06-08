@@ -11,6 +11,8 @@ export const Colors = {
   accentSoft: '#d4eee3',
   warn: '#c45c1a',
   warnLight: '#fef3e8',
+  orange: '#e8610a',
+  orangeLight: '#fff4ed',
   danger: '#c0392b',
   dangerLight: '#fdecea',
   blue: '#1a5fa8',

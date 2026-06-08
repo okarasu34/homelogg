@@ -7,7 +7,7 @@ function TabIcon({ emoji, label, focused }: { emoji: string; label: string; focu
   return (
     <View style={styles.tabItem}>
       <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-        <Text style={styles.emoji}>{emoji}</Text>
+        <Text style={[styles.emoji, focused && styles.emojiActive]}>{emoji}</Text>
       </View>
       <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{label}</Text>
     </View>
@@ -71,29 +71,32 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: Colors.navBg,
-    borderTopWidth: 1,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 0.5,
     borderTopColor: Colors.border,
     paddingTop: 8,
     paddingBottom: 20,
-    height: 72,
+    height: 76,
   },
   tabItem: {
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
   },
   iconWrap: {
-    width: 38,
-    height: 30,
-    borderRadius: 10,
+    width: 48,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconWrapActive: {
-    backgroundColor: Colors.accentLight,
+    backgroundColor: '#e8610a',
   },
   emoji: {
-    fontSize: 17,
+    fontSize: 20,
+  },
+  emojiActive: {
+    fontSize: 22,
   },
   tabLabel: {
     fontSize: 10,
@@ -101,6 +104,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   tabLabelActive: {
-    color: Colors.accent,
+    color: '#e8610a',
   },
 });
