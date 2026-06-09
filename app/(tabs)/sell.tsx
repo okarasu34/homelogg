@@ -1,15 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow } from '../../src/constants/theme';
 import { Card, Tag, SectionLabel } from '../../src/components/UI';
 import { useLang } from '../../src/lib/LangContext';
-
-const qrPattern = Array.from({ length: 100 }, () => Math.random() > 0.5);
+import { supabase } from '../../src/lib/supabase';
 
 export default function SellScreen() {
   const { t } = useLang();
   const [qrVisible, setQrVisible] = useState(false);
+  const [userName, setUserName] = useState('');
+  const [address, setAddress] = useState('');
+  const [maintenanceCount, setMaintenanceCount] = useState(0);
+  const [documentCount, setDocumentCount] = useState(0);
+  const [deviceCount, setDeviceCount] = useState(0);
+  const qrPattern = useState(() => Array.from({ length: 100 }, () => Math.random() > 0.5))[0];
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const meta = user.user_metadata || {};
+    const fullName = meta.full_name || user.email?.split('@')[0] || '';
+    setUserName(fullName.split(' ')[0]);
+    setAddress(meta.address || '');
+
+    const [maint, docs, devs] = await Promise.all([
+      supabase.from('maintenance_records').select('id', { count: 'exact' }),
+      supabase.from('documents').select('id', { count: 'exact' }),
+      supabase.from('devices').select('id', { count: 'exact' }),
+    ]);
+
+    setMaintenanceCount(maint.count || 0);
+    setDocumentCount(docs.count || 0);
+    setDeviceCount(devs.count || 0);
+  };
+
+  const homeScore = Math.min(700 + maintenanceCount * 20 + documentCount * 15 + deviceCount * 10, 1000);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -22,10 +53,10 @@ export default function SellScreen() {
           <Text style={styles.summaryLabel}>{t.buyerSummary}</Text>
           <View style={styles.summaryStats}>
             {[
-              { val: '847', label: 'HomeScore' },
-              { val: 'B', label: t.nav?.energy ?? 'Energy' },
-              { val: '4', label: t.maintenanceRecords },
-              { val: '5', label: t.documents },
+              { val: homeScore.toString(), label: 'HomeScore' },
+              { val: 'B', label: t.nav?.energy ?? 'Energi' },
+              { val: maintenanceCount.toString(), label: t.maintenanceRecords },
+              { val: documentCount.toString(), label: t.documents },
             ].map((s, i) => (
               <View key={i} style={{ alignItems: 'center' }}>
                 <Text style={styles.summaryVal}>{s.val}</Text>
@@ -61,7 +92,7 @@ export default function SellScreen() {
         {/* Share Options */}
         <SectionLabel label={t.share} />
         {[
-          { icon: '🔗', label: t.copyLink, sub: 'homelog.app/p/oslo-ekebergveien' },
+          { icon: '🔗', label: t.copyLink, sub: 'husbok.app/p/' + (address || 'min-bolig').toLowerCase().replace(/ /g, '-') },
           { icon: '📤', label: t.downloadPdf, sub: t.fullPackage },
           { icon: '📧', label: t.sendAgent, sub: t.sendEmail },
         ].map((item, i) => (
@@ -87,59 +118,24 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
   content: { padding: 20, paddingBottom: 40 },
   title: { color: Colors.text, fontSize: 22, fontWeight: '900', marginBottom: 20 },
-
-  summaryCard: {
-    backgroundColor: Colors.accent,
-    borderRadius: Radius.xxl,
-    padding: 20,
-    marginBottom: 14,
-    overflow: 'hidden',
-    ...Shadow.lg,
-  },
-  summaryGlow: {
-    position: 'absolute', top: -30, right: -30,
-    width: 120, height: 120,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 60,
-  },
-  summaryLabel: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 10, fontWeight: '800',
-    letterSpacing: 1, textTransform: 'uppercase',
-    marginBottom: 12,
-  },
+  summaryCard: { backgroundColor: Colors.accent, borderRadius: Radius.xxl, padding: 20, marginBottom: 14, overflow: 'hidden', ...Shadow.lg },
+  summaryGlow: { position: 'absolute', top: -30, right: -30, width: 120, height: 120, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 60 },
+  summaryLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 10, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 },
   summaryStats: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
   summaryVal: { color: '#fff', fontSize: 26, fontWeight: '900' },
   summaryStatLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 9, fontWeight: '600', marginTop: 2 },
   divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginBottom: 10 },
   lastUpdated: { color: 'rgba(255,255,255,0.5)', fontSize: 11, textAlign: 'center' },
-
   qrCard: { marginBottom: 20 },
-  qrGrid: {
-    width: 130, height: 130,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
+  qrGrid: { width: 130, height: 130, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#fff', borderRadius: 12, padding: 8, marginBottom: 12, borderWidth: 1, borderColor: Colors.border },
   qrCell: { width: '10%', aspectRatio: 1, borderRadius: 1 },
   qrActive: { color: Colors.accent, fontSize: 13, fontWeight: '800' },
   qrActiveSub: { color: Colors.textSub, fontSize: 11, marginTop: 2 },
   qrTitle: { color: Colors.text, fontSize: 14, fontWeight: '700' },
   qrSub: { color: Colors.textSub, fontSize: 12, textAlign: 'center', marginTop: 4 },
-
   shareCard: { marginBottom: 8 },
   shareRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
-  shareIcon: {
-    width: 36, height: 36,
-    backgroundColor: Colors.accentLight,
-    borderRadius: 10,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  shareIcon: { width: 36, height: 36, backgroundColor: Colors.accentLight, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   shareLabel: { color: Colors.text, fontSize: 13, fontWeight: '700' },
   shareSub: { color: Colors.textSub, fontSize: 11 },
 });
