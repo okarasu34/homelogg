@@ -21,13 +21,8 @@ export default function RootLayout() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        router.replace('/(tabs)');
-      } else {
-        router.replace('/auth');
-      }
-    });
+  setSession(session);
+});
 
     return () => subscription.unsubscribe();
   }, []);
