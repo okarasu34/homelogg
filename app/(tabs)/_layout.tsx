@@ -1,109 +1,55 @@
-import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
-import { Colors } from '../../src/constants/theme';
-import { useLang } from '../../src/lib/LangContext';
+import { useEffect, useState } from 'react';
+import { Stack, router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as SplashScreen from 'expo-splash-screen';
+import { LangProvider } from '../src/lib/LangContext';
+import { supabase } from '../src/lib/supabase';
+import { Session } from '@supabase/supabase-js';
 
-function TabIcon({ emoji, label, focused }: { emoji: string; label: string; focused: boolean }) {
+SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+      SplashScreen.hideAsync();
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        router.replace('/(tabs)');
+      } else {
+        router.replace('/auth');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) return null;
+
   return (
-    <View style={styles.tabItem}>
-      <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-        <Text style={[styles.emoji, focused && styles.emojiActive]}>{emoji}</Text>
-      </View>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelActive]}>{label}</Text>
-    </View>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <LangProvider>
+        <StatusBar style="dark" backgroundColor="#f5f4f0" />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="auth" />
+          <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="scan-result" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="repair" />
+          <Stack.Screen name="repair-detail" />
+          <Stack.Screen name="maintenance" />
+          <Stack.Screen name="documents" />
+          <Stack.Screen name="settings" />
+        </Stack>
+      </LangProvider>
+    </GestureHandlerRootView>
   );
 }
-
-export default function TabsLayout() {
-  const { t } = useLang();
-
-  return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: styles.tabBar,
-        tabBarShowLabel: false,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="🏠" label={t.nav.home} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="energy"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="⚡" label={t.nav.energy} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="import"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="✨" label={t.nav.import} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="devices"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="🔧" label={t.nav.devices} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="sell"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="🏷️" label={t.nav.sell} focused={focused} />
-          ),
-        }}
-      />
-    </Tabs>
-  );
-}
-
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: '#ffffff',
-    borderTopWidth: 0.5,
-    borderTopColor: Colors.border,
-    paddingTop: 8,
-    paddingBottom: 20,
-    height: 76,
-  },
-  tabItem: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  iconWrap: {
-    width: 48,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconWrapActive: {
-    backgroundColor: '#e8610a',
-  },
-  emoji: {
-    fontSize: 20,
-  },
-  emojiActive: {
-    fontSize: 22,
-  },
-  tabLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.textMuted,
-  },
-  tabLabelActive: {
-    color: '#e8610a',
-  },
-});
