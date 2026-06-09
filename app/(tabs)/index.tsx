@@ -232,3 +232,4 @@ const styles = StyleSheet.create({
   settingsRow: { marginTop: 12, alignItems: 'center', paddingVertical: 12 },
   settingsText: { color: Colors.textSub, fontSize: 13, fontWeight: '600' },
 });
+ 
