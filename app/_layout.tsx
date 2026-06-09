@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Stack, router } from 'expo-router';
+import { Slot, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -21,11 +21,20 @@ export default function RootLayout() {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-  setSession(session);
-});
+      setSession(session);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (session) {
+      router.replace('/(tabs)');
+    } else {
+      router.replace('/auth');
+    }
+  }, [session, loading]);
 
   if (loading) return null;
 
@@ -33,17 +42,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <LangProvider>
         <StatusBar style="dark" backgroundColor="#f5f4f0" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="auth" />
-          <Stack.Screen name="scan" options={{ presentation: 'fullScreenModal' }} />
-          <Stack.Screen name="scan-result" options={{ presentation: 'modal' }} />
-          <Stack.Screen name="repair" />
-          <Stack.Screen name="repair-detail" />
-          <Stack.Screen name="maintenance" />
-          <Stack.Screen name="documents" />
-          <Stack.Screen name="settings" />
-        </Stack>
+        <Slot />
       </LangProvider>
     </GestureHandlerRootView>
   );
