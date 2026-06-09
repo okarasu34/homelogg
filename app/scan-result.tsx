@@ -19,6 +19,15 @@ const categoryLabels: Record<string, string> = {
   other: 'Annet',
 };
 
+async function getOrCreateProperty(userId: string) {
+  const { data: property } = await supabase.from('properties').select('id').eq('user_id', userId).single();
+  if (property) return property.id;
+  const { data: newProp } = await supabase.from('properties')
+    .insert({ user_id: userId, address: 'Min bolig', city: 'Oslo' })
+    .select().single();
+  return newProp?.id;
+}
+
 export default function ScanResultScreen() {
   const { t } = useLang();
   const [saved, setSaved] = useState(false);
@@ -32,7 +41,6 @@ export default function ScanResultScreen() {
       setScanResult(result);
       setSelectedCategory(result.category || 'maintenance');
     } else {
-      // Demo fallback
       setScanResult({
         type: 'Faktura — Rørleggerservice',
         company: 'Rørlegger Hansen AS',
@@ -51,29 +59,51 @@ export default function ScanResultScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    let propertyId = '';
-    const { data: property } = await supabase.from('properties').select('id').eq('user_id', user.id).single();
-    if (property) {
-      propertyId = property.id;
-    } else {
-      const { data: newProp } = await supabase.from('properties')
-        .insert({ user_id: user.id, address: 'Min bolig', city: 'Oslo' })
-        .select().single();
-      if (newProp) propertyId = newProp.id;
-    }
+    const propertyId = await getOrCreateProperty(user.id);
+    if (!propertyId) { setSaving(false); return; }
 
     const costMatch = scanResult.amount?.match(/[\d\s,.]+/);
     const cost = costMatch ? parseFloat(costMatch[0].replace(/\s/g, '').replace(',', '.')) : null;
 
-    await supabase.from('maintenance_records').insert({
-      property_id: propertyId,
-      title: scanResult.type || 'Skannet dokument',
-      date: scanResult.date || new Date().toISOString().split('T')[0],
-      cost,
-      category: selectedCategory,
-      notes: scanResult.company ? `Firma: ${scanResult.company}` : '',
-      source: 'scan',
-    });
+    if (selectedCategory === 'utility') {
+      // Enerji sekmesine — maintenance_records'a utility olarak kaydet
+      await supabase.from('maintenance_records').insert({
+        property_id: propertyId,
+        title: scanResult.type || 'Strømfaktura',
+        date: scanResult.date || new Date().toISOString().split('T')[0],
+        cost,
+        category: 'utility',
+        notes: scanResult.company ? `Leverandør: ${scanResult.company}` : '',
+        source: 'scan',
+      });
+    } else if (selectedCategory === 'insurance') {
+      // Dokumenter sekmesine
+      await supabase.from('documents').insert({
+        property_id: propertyId,
+        name: scanResult.company || 'Forsikring',
+        type: 'Forsikring',
+        date: scanResult.date || new Date().toISOString().split('T')[0],
+      });
+    } else if (selectedCategory === 'other') {
+      // Dokumenter sekmesine
+      await supabase.from('documents').insert({
+        property_id: propertyId,
+        name: scanResult.type || 'Dokument',
+        type: 'Annet',
+        date: scanResult.date || new Date().toISOString().split('T')[0],
+      });
+    } else {
+      // maintenance / renovation → Vedlikehold
+      await supabase.from('maintenance_records').insert({
+        property_id: propertyId,
+        title: scanResult.type || 'Vedlikehold',
+        date: scanResult.date || new Date().toISOString().split('T')[0],
+        cost,
+        category: selectedCategory,
+        notes: scanResult.company ? `Firma: ${scanResult.company}` : '',
+        source: 'scan',
+      });
+    }
 
     setSaving(false);
     setSaved(true);
@@ -83,14 +113,27 @@ export default function ScanResultScreen() {
   if (!scanResult) return <View style={styles.safe}><ActivityIndicator color={Colors.accent} /></View>;
 
   if (saved) {
+    const destination = ['utility'].includes(selectedCategory)
+      ? '/(tabs)/energy'
+      : ['insurance', 'other'].includes(selectedCategory)
+      ? '/documents'
+      : '/maintenance';
+
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.savedWrap}>
           <Text style={{ fontSize: 64, marginBottom: 16 }}>✅</Text>
           <Text style={styles.savedTitle}>{t.savedSuccess}</Text>
-          <Text style={styles.savedSub}>Lagt til i vedlikeholdshistorikken</Text>
-          <TouchableOpacity style={styles.homeBtn} onPress={() => router.replace('/(tabs)')}>
-            <Text style={styles.homeBtnText}>{t.backHome}</Text>
+          <Text style={styles.savedSub}>
+            {selectedCategory === 'utility' ? 'Lagt til i Energi' :
+             ['insurance','other'].includes(selectedCategory) ? 'Lagt til i Dokumenter' :
+             'Lagt til i Vedlikehold'}
+          </Text>
+          <TouchableOpacity style={styles.homeBtn} onPress={() => router.replace(destination as any)}>
+            <Text style={styles.homeBtnText}>Gå dit →</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.homeBtnSecondary} onPress={() => router.replace('/(tabs)')}>
+            <Text style={styles.homeBtnSecondaryText}>{t.backHome}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -105,7 +148,6 @@ export default function ScanResultScreen() {
           <Text style={styles.title}>{t.scanSuccess}</Text>
         </View>
 
-        {/* Result card */}
         <View style={styles.resultCard}>
           <View style={styles.resultCardHeader}>
             <View style={styles.resultIcon}>
@@ -128,7 +170,6 @@ export default function ScanResultScreen() {
           ))}
         </View>
 
-        {/* Confidence */}
         <Card style={styles.confidenceCard}>
           <View style={styles.confidenceRow}>
             <Text style={styles.confidenceLabel}>{t.aiConfidence}</Text>
@@ -139,7 +180,6 @@ export default function ScanResultScreen() {
           </View>
         </Card>
 
-        {/* Category */}
         <View style={styles.categoryBox}>
           <Text style={styles.categoryTitle}>✏️ {t.categoryLabel}</Text>
           <View style={styles.categoryChips}>
@@ -155,9 +195,13 @@ export default function ScanResultScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          <Text style={styles.categoryHint}>
+            {selectedCategory === 'utility' ? '→ Lagres i Energi' :
+             ['insurance','other'].includes(selectedCategory) ? '→ Lagres i Dokumenter' :
+             '→ Lagres i Vedlikehold'}
+          </Text>
         </View>
 
-        {/* Actions */}
         <View style={styles.actions}>
           <TouchableOpacity style={styles.rescanBtn} onPress={() => router.replace('/scan')}>
             <Text style={styles.rescanText}>{t.rescan}</Text>
@@ -195,11 +239,12 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: Colors.accent, borderRadius: 3 },
   categoryBox: { backgroundColor: Colors.goldLight, borderWidth: 1, borderColor: '#e8d88a', borderRadius: 14, padding: 14, marginBottom: 20 },
   categoryTitle: { color: Colors.gold, fontSize: 12, fontWeight: '800', marginBottom: 10 },
-  categoryChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  categoryChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
   chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.full, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
   chipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
   chipText: { color: Colors.textSub, fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: '#fff', fontWeight: '700' },
+  categoryHint: { color: Colors.accent, fontSize: 11, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 10 },
   rescanBtn: { flex: 1, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   rescanText: { color: Colors.text, fontSize: 13, fontWeight: '700' },
@@ -207,7 +252,9 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   savedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   savedTitle: { color: Colors.accent, fontSize: 22, fontWeight: '900', marginBottom: 8 },
-  savedSub: { color: Colors.textSub, fontSize: 14, marginBottom: 32 },
-  homeBtn: { backgroundColor: Colors.accent, borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14, ...Shadow.md },
+  savedSub: { color: Colors.textSub, fontSize: 14, marginBottom: 24 },
+  homeBtn: { backgroundColor: Colors.accent, borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14, ...Shadow.md, marginBottom: 12 },
   homeBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  homeBtnSecondary: { paddingVertical: 10 },
+  homeBtnSecondaryText: { color: Colors.textSub, fontSize: 13 },
 });
