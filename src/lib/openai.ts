@@ -1,4 +1,4 @@
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '';
+const GOOGLE_VISION_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '';
 
 export interface ScanResult {
   type: string;
@@ -7,72 +7,73 @@ export interface ScanResult {
   amount?: string;
   category: 'maintenance' | 'renovation' | 'utility' | 'insurance' | 'other';
   confidence: number;
-  rawText?: string;
 }
 
 export async function scanDocument(base64Image: string): Promise<ScanResult> {
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        max_tokens: 500,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64Image}`,
-                  detail: 'low',
-                },
-              },
-              {
-                type: 'text',
-                text: `Analyze this home document/invoice and extract information. 
-                Respond ONLY with valid JSON, no markdown, no explanation:
-                {
-                  "type": "document type in Norwegian (e.g. Faktura, Kvittering, Forsikringspolise)",
-                  "company": "company name if visible",
-                  "date": "date in format DD.MM.YYYY if visible",
-                  "amount": "amount with currency if visible (e.g. kr 4 890)",
-                  "category": "one of: maintenance, renovation, utility, insurance, other",
-                  "confidence": number between 0-100,
-                  "rawText": "brief summary of what you see"
-                }`,
-              },
-            ],
-          },
-        ],
-      }),
-    });
+    // Step 1: Extract text with Google Vision
+    const visionResponse = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requests: [{
+            image: { content: base64Image },
+            features: [{ type: 'TEXT_DETECTION', maxResults: 1 }],
+          }],
+        }),
+      }
+    );
 
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+    const visionData = await visionResponse.json();
+    const extractedText = visionData.responses?.[0]?.fullTextAnnotation?.text ?? '';
+
+    if (!extractedText) {
+      return { type: 'Faktura', category: 'maintenance', confidence: 40 };
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content ?? '';
+    // Step 2: Parse the extracted text
+    const lines = extractedText.split('\n').map((l: string) => l.trim()).filter(Boolean);
 
-    // Parse JSON response
-    const cleaned = content.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(cleaned);
-    return parsed as ScanResult;
+    // Detect amount
+    const amountMatch = extractedText.match(/(?:kr|NOK|€)\s*[\d\s,.]+/i);
+    const amount = amountMatch ? amountMatch[0].trim() : '';
+
+    // Detect date
+    const dateMatch = extractedText.match(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/);
+    const date = dateMatch ? dateMatch[0] : '';
+
+    // Detect company (first meaningful line)
+    const company = lines.find(l => l.length > 3 && !/^\d/.test(l)) || '';
+
+    // Detect category
+    const text = extractedText.toLowerCase();
+    let category: ScanResult['category'] = 'other';
+    if (text.includes('strøm') || text.includes('energi') || text.includes('kraft')) category = 'utility';
+    else if (text.includes('forsikring') || text.includes('polise')) category = 'insurance';
+    else if (text.includes('reparasjon') || text.includes('service') || text.includes('vedlikehold')) category = 'maintenance';
+    else if (text.includes('renovering') || text.includes('oppussing') || text.includes('maling')) category = 'renovation';
+    else category = 'maintenance';
+
+    const typeLabels: Record<string, string> = {
+      utility: 'Strømfaktura',
+      insurance: 'Forsikringspolise',
+      maintenance: 'Vedlikeholdsfaktura',
+      renovation: 'Renoveringsfaktura',
+      other: 'Faktura',
+    };
+
+    return {
+      type: typeLabels[category],
+      company,
+      date,
+      amount,
+      category,
+      confidence: 85,
+    };
   } catch (error) {
     console.error('Scan error:', error);
-    // Return mock result for demo if API fails
-    return {
-      type: 'Faktura',
-      company: 'Ukjent firma',
-      date: new Date().toLocaleDateString('no-NO'),
-      amount: '',
-      category: 'maintenance',
-      confidence: 60,
-    };
+    return { type: 'Faktura', category: 'maintenance', confidence: 50 };
   }
 }
