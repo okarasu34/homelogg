@@ -1,17 +1,11 @@
-import React from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow } from '../../src/constants/theme';
 import { Card, Tag, SectionLabel } from '../../src/components/UI';
 import { useLang } from '../../src/lib/LangContext';
+import { supabase } from '../../src/lib/supabase';
 
 const homeScore = 847;
 const energyScore = 78;
@@ -28,26 +22,43 @@ function energyGrade(s: number) {
 
 export default function HomeScreen() {
   const { t, lang, setLang } = useLang();
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        const fullName = user.user_metadata?.full_name || user.email?.split('@')[0] || '';
+        setUserName(fullName.split(' ')[0]);
+      }
+    });
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.replace('/auth');
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
         {/* Header */}
         <View style={styles.headerTop}>
-          <Text style={styles.greeting}>{t.greeting}, Bjørn 👋</Text>
-          <TouchableOpacity
-            onPress={() => setLang(lang === 'no' ? 'en' : 'no')}
-            style={styles.langBtn}
-          >
-            <Text style={styles.langBtnText}>
-              {lang === 'no' ? '🇬🇧 EN' : '🇳🇴 NO'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.greeting}>{t.greeting}, {userName} 👋</Text>
+          <View style={styles.headerBtns}>
+            <TouchableOpacity onPress={() => setLang(lang === 'no' ? 'en' : 'no')} style={styles.langBtn}>
+              <Text style={styles.langBtnText}>{lang === 'no' ? '🇬🇧 EN' : '🇳🇴 NO'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/profile')} style={styles.iconBtn}>
+              <Text style={styles.iconBtnText}>👤</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSignOut} style={[styles.iconBtn, styles.signOutBtn]}>
+              <Text style={styles.iconBtnText}>🚪</Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Logo Row */}
         <View style={styles.logoRow}>
           <View style={styles.logoWrap}>
             <View style={styles.logoRoof} />
@@ -74,7 +85,6 @@ export default function HomeScreen() {
                 <Tag label={t.qrReady} color="#fff" bg="rgba(255,255,255,0.18)" />
               </View>
             </View>
-            {/* Score circle */}
             <View style={styles.scoreCircle}>
               <View style={styles.scoreCircleTrack} />
               <View style={styles.scoreCircleInner}>
@@ -85,35 +95,28 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Repair Alert Banner */}
+        {/* Repair Alert */}
         <Card style={styles.repairBanner} onPress={() => router.push('/repair')}>
           <View style={styles.bannerRow}>
             <View style={[styles.bannerIcon, { backgroundColor: Colors.warn }]}>
               <Text style={{ fontSize: 18 }}>🔨</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerTitle, { color: Colors.warn }]}>
-                {t.repairAlert}
-              </Text>
+              <Text style={[styles.bannerTitle, { color: Colors.warn }]}>{t.repairAlert}</Text>
               <Text style={styles.bannerSub}>{t.repairAlertSub}</Text>
             </View>
             <Text style={{ color: Colors.warn, fontSize: 18, fontWeight: '700' }}>›</Text>
           </View>
         </Card>
 
-        {/* Smart Import Banner */}
-        <Card
-          style={[styles.importBanner, { borderColor: '#d4cef0' }]}
-          onPress={() => router.push('/import')}
-        >
+        {/* Smart Import */}
+        <Card style={[styles.importBanner, { borderColor: '#d4cef0' }]} onPress={() => router.push('/import')}>
           <View style={styles.bannerRow}>
             <View style={[styles.bannerIcon, { backgroundColor: Colors.purple }]}>
               <Text style={{ fontSize: 18 }}>✨</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.bannerTitle, { color: Colors.purple }]}>
-                {t.smartImport}
-              </Text>
+              <Text style={[styles.bannerTitle, { color: Colors.purple }]}>{t.smartImport}</Text>
               <Text style={styles.bannerSub}>{t.smartImportSub}</Text>
             </View>
             <Text style={{ color: Colors.purple, fontSize: 18, fontWeight: '700' }}>›</Text>
@@ -124,55 +127,17 @@ export default function HomeScreen() {
         <SectionLabel label={t.summary} />
         <View style={styles.grid}>
           {[
-            {
-              label: t.energyScore,
-              value: `${energyScore}/100`,
-              grade: energyGrade(energyScore),
-              bg: Colors.accentLight,
-              color: Colors.accent,
-              icon: '⚡',
-              route: '/energy',
-            },
-            {
-              label: t.maintenanceScore,
-              value: `${maintenanceScore}/100`,
-              grade: 'A+',
-              bg: Colors.purpleLight,
-              color: Colors.purple,
-              icon: '🔧',
-              route: '/maintenance',
-            },
-            {
-              label: t.documents,
-              value: `${docsScore}/100`,
-              grade: 'B',
-              bg: Colors.goldLight,
-              color: Colors.gold,
-              icon: '📋',
-              route: '/documents',
-            },
-            {
-              label: t.devices,
-              value: `4 ${t.registered}`,
-              grade: '1 ⚠️',
-              bg: Colors.warnLight,
-              color: Colors.warn,
-              icon: '📱',
-              route: '/devices',
-            },
+            { label: t.energyScore, value: `${energyScore}/100`, grade: energyGrade(energyScore), bg: Colors.accentLight, color: Colors.accent, icon: '⚡', route: '/energy' },
+            { label: t.maintenanceScore, value: `${maintenanceScore}/100`, grade: 'A+', bg: Colors.purpleLight, color: Colors.purple, icon: '🔧', route: '/maintenance' },
+            { label: t.documents, value: `${docsScore}/100`, grade: 'B', bg: Colors.goldLight, color: Colors.gold, icon: '📋', route: '/documents' },
+            { label: t.devices, value: `4 ${t.registered}`, grade: '1 ⚠️', bg: Colors.warnLight, color: Colors.warn, icon: '📱', route: '/devices' },
           ].map((item, i) => (
-            <Card
-              key={i}
-              style={styles.statCard}
-              onPress={() => router.push(item.route as any)}
-            >
+            <Card key={i} style={styles.statCard} onPress={() => router.push(item.route as any)}>
               <View style={styles.statCardTop}>
                 <View style={[styles.statIcon, { backgroundColor: item.bg }]}>
                   <Text style={{ fontSize: 16 }}>{item.icon}</Text>
                 </View>
-                <Text style={[styles.statGrade, { color: item.color }]}>
-                  {item.grade}
-                </Text>
+                <Text style={[styles.statGrade, { color: item.color }]}>{item.grade}</Text>
               </View>
               <Text style={styles.statValue}>{item.value}</Text>
               <Text style={styles.statLabel}>{item.label}</Text>
@@ -199,11 +164,7 @@ export default function HomeScreen() {
           </View>
         ))}
 
-        {/* Settings link */}
-        <TouchableOpacity
-          style={styles.settingsRow}
-          onPress={() => router.push('/settings')}
-        >
+        <TouchableOpacity style={styles.settingsRow} onPress={() => router.push('/settings')}>
           <Text style={styles.settingsText}>⚙️ {t.settings}</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -216,134 +177,39 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
 
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
-  },
-  logoWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e8e5df',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  logoRoof: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 22,
-    backgroundColor: '#2d6a4f',
-    borderTopLeftRadius: 11,
-    borderTopRightRadius: 11,
-  },
-  logoBodyLeft: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 24,
-    height: 26,
-    backgroundColor: '#e8610a',
-  },
-  logoBodyRight: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 26,
-    backgroundColor: '#2d6a4f',
-  },
-  logoDoor: {
-    position: 'absolute',
-    bottom: 0,
-    left: 17,
-    width: 14,
-    height: 16,
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 7,
-    borderTopRightRadius: 7,
-  },
-  greeting: { color: Colors.textSub, fontSize: 13, fontWeight: '600' },
-  title: { color: Colors.text, fontSize: 26, fontWeight: '900', lineHeight: 32 },
-  tagline: { color: Colors.textMuted, fontSize: 12, marginTop: 3 },
-  langBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.accent,
-    backgroundColor: Colors.accentLight,
-  },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  headerBtns: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  greeting: { color: Colors.textSub, fontSize: 13, fontWeight: '600', flex: 1 },
+  langBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.full, borderWidth: 1.5, borderColor: Colors.accent, backgroundColor: Colors.accentLight },
   langBtnText: { fontSize: 11, fontWeight: '700', color: Colors.accent },
+  iconBtn: { width: 32, height: 32, borderRadius: Radius.full, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  signOutBtn: { backgroundColor: Colors.dangerLight, borderColor: '#f5c5c0' },
+  iconBtnText: { fontSize: 15 },
 
-  propertyCard: {
-    background: 'linear-gradient(135deg, #2d6a4f, #1a4a35)',
-    backgroundColor: Colors.accent,
-    borderRadius: Radius.xxl,
-    padding: 20,
-    marginBottom: 12,
-    overflow: 'hidden',
-    ...Shadow.lg,
-  },
-  propertyCardGlow: {
-    position: 'absolute',
-    top: -30,
-    right: -30,
-    width: 120,
-    height: 120,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 60,
-  },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  logoWrap: { width: 48, height: 48, borderRadius: 12, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.border, overflow: 'hidden', position: 'relative', ...Shadow.sm },
+  logoRoof: { position: 'absolute', top: 0, left: 0, right: 0, height: 22, backgroundColor: Colors.accent, borderTopLeftRadius: 11, borderTopRightRadius: 11 },
+  logoBodyLeft: { position: 'absolute', bottom: 0, left: 0, width: 24, height: 26, backgroundColor: '#e8610a' },
+  logoBodyRight: { position: 'absolute', bottom: 0, right: 0, width: 24, height: 26, backgroundColor: Colors.accent },
+  logoDoor: { position: 'absolute', bottom: 0, left: 17, width: 14, height: 16, backgroundColor: Colors.white, borderTopLeftRadius: 7, borderTopRightRadius: 7 },
+  title: { color: Colors.text, fontSize: 24, fontWeight: '900', lineHeight: 28 },
+  tagline: { color: Colors.textMuted, fontSize: 12, marginTop: 3 },
+
+  propertyCard: { backgroundColor: Colors.accent, borderRadius: Radius.xxl, padding: 20, marginBottom: 14, overflow: 'hidden', ...Shadow.lg },
+  propertyCardGlow: { position: 'absolute', top: -30, right: -30, width: 120, height: 120, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 60 },
   propertyCardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  propertyLabel: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
+  propertyLabel: { color: 'rgba(255,255,255,0.55)', fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
   propertyAddress: { color: Colors.white, fontSize: 17, fontWeight: '700', marginTop: 5, marginBottom: 2 },
   propertyCity: { color: 'rgba(255,255,255,0.55)', fontSize: 12 },
   propertyTags: { flexDirection: 'row', gap: 6, marginTop: 10 },
-  scoreCircle: {
-    width: 76,
-    height: 76,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  scoreCircleTrack: {
-    position: 'absolute',
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 5,
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
+  scoreCircle: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  scoreCircleTrack: { position: 'absolute', width: 76, height: 76, borderRadius: 38, borderWidth: 5, borderColor: 'rgba(255,255,255,0.25)' },
   scoreCircleInner: { alignItems: 'center' },
   scoreValue: { color: Colors.white, fontSize: 16, fontWeight: '800' },
   scoreMax: { color: 'rgba(255,255,255,0.6)', fontSize: 8, fontWeight: '600' },
 
-  repairBanner: {
-    marginBottom: 10,
-    backgroundColor: Colors.warnLight,
-    borderColor: '#f4c99a',
-  },
-  importBanner: {
-    marginBottom: 20,
-    backgroundColor: '#f0ecfa',
-  },
+  repairBanner: { marginBottom: 10, backgroundColor: Colors.warnLight, borderColor: '#f4c99a' },
+  importBanner: { marginBottom: 20, backgroundColor: '#f0ecfa' },
   bannerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   bannerIcon: { width: 38, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   bannerTitle: { fontSize: 13, fontWeight: '800' },
@@ -358,15 +224,7 @@ const styles = StyleSheet.create({
   statLabel: { color: Colors.textSub, fontSize: 11, marginTop: 2, fontWeight: '500' },
 
   activityRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
-  activityIcon: {
-    width: 36, height: 36,
-    backgroundColor: Colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  activityIcon: { width: 36, height: 36, backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
   activityText: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   activityTime: { color: Colors.textSub, fontSize: 11 },
   activityDot: { width: 7, height: 7, borderRadius: 4 },
