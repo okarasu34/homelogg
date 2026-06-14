@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, TextInput, Modal, ActivityIndicator, Image,
+  StyleSheet, TextInput, Modal, ActivityIndicator, Image, Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -48,6 +48,14 @@ function decode(base64: string): Uint8Array {
   return bytes;
 }
 
+// Cross-platform image preview
+function PreviewImage({ uri, height }: { uri: string; height: number }) {
+  if (Platform.OS === 'web') {
+    return <img src={uri} style={{ width: '100%', height, borderRadius: 10, objectFit: 'contain', backgroundColor: '#f5f4f0' }} />;
+  }
+  return <Image source={{ uri }} style={{ width: '100%', height, borderRadius: 10 }} resizeMode="contain" />;
+}
+
 export default function MaintenanceScreen() {
   const { t } = useLang();
   const [records, setRecords] = useState<MaintenanceRecord[]>([]);
@@ -77,6 +85,25 @@ export default function MaintenanceScreen() {
   };
 
   const pickFile = async () => {
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          setFileBase64(result.split(',')[1]);
+          setFileName(file.name);
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       base64: true, quality: 0.8,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -109,9 +136,10 @@ export default function MaintenanceScreen() {
     let photoUrl = '';
     if (fileBase64) {
       const filePath = `${user.id}/${Date.now()}_${fileName}`;
-      const { data: uploadData } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, decode(fileBase64), { contentType: 'image/jpeg' });
+      if (uploadError) console.error('Upload error:', uploadError);
       if (uploadData) {
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
         photoUrl = urlData.publicUrl;
@@ -201,7 +229,9 @@ export default function MaintenanceScreen() {
                 </View>
               </View>
               {item.photo_url ? (
-                <Image source={{ uri: item.photo_url }} style={styles.thumbImage} resizeMode="cover" />
+                <View style={{ marginTop: 10 }}>
+                  <PreviewImage uri={item.photo_url} height={100} />
+                </View>
               ) : null}
             </Card>
           ))
@@ -245,7 +275,9 @@ export default function MaintenanceScreen() {
               <Text style={styles.fileBtnText}>{fileName || '📎 Velg bilde'}</Text>
             </TouchableOpacity>
             {fileBase64 ? (
-              <Image source={{ uri: `data:image/jpeg;base64,${fileBase64}` }} style={styles.preview} resizeMode="cover" />
+              <View style={{ marginTop: 10 }}>
+                <PreviewImage uri={`data:image/jpeg;base64,${fileBase64}`} height={160} />
+              </View>
             ) : null}
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
@@ -286,7 +318,9 @@ export default function MaintenanceScreen() {
             ) : null}
 
             {previewRecord?.photo_url ? (
-              <Image source={{ uri: previewRecord.photo_url }} style={styles.previewFull} resizeMode="contain" />
+              <View style={{ marginTop: 16 }}>
+                <PreviewImage uri={previewRecord.photo_url} height={300} />
+              </View>
             ) : (
               <View style={styles.noPreview}>
                 <Text style={{ fontSize: 40 }}>🔧</Text>
@@ -331,7 +365,6 @@ const styles = StyleSheet.create({
   recordBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   recordDate: { color: Colors.textSub, fontSize: 12 },
   recordNotes: { color: Colors.textMuted, fontSize: 11, marginTop: 4 },
-  thumbImage: { width: '100%', height: 120, borderRadius: 10, marginTop: 10 },
   modalSafe: { flex: 1, backgroundColor: Colors.bg },
   modalContent: { padding: 20, paddingBottom: 40 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
@@ -347,7 +380,6 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#fff', fontWeight: '700' },
   fileBtn: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12, alignItems: 'center' },
   fileBtnText: { color: Colors.textSub, fontSize: 13 },
-  preview: { width: '100%', height: 160, borderRadius: Radius.md, marginTop: 10 },
   saveBtn: { backgroundColor: Colors.accent, borderRadius: Radius.lg, paddingVertical: 15, alignItems: 'center', marginTop: 24, ...Shadow.md },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   previewInfo: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
@@ -356,7 +388,6 @@ const styles = StyleSheet.create({
   notesBox: { backgroundColor: Colors.bg, borderRadius: Radius.md, padding: 12, marginTop: 12 },
   notesLabel: { color: Colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
   notesText: { color: Colors.text, fontSize: 13 },
-  previewFull: { width: '100%', height: 300, borderRadius: Radius.md, marginTop: 16 },
   noPreview: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   noPreviewText: { color: Colors.textMuted, fontSize: 13 },
   deleteBtn: { backgroundColor: Colors.dangerLight, borderRadius: Radius.lg, paddingVertical: 14, alignItems: 'center', marginTop: 24, borderWidth: 1, borderColor: '#f5c5c0' },

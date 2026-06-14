@@ -19,7 +19,7 @@ const categoryLabels: Record<string, string> = {
   other: 'Annet',
 };
 
-const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
+const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Strømfaktura', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
 const DEVICE_ICONS = ['🔥', '❄️', '🫧', '👕', '🍳', '💡', '🚿', '🔌', '📡', '🛁'];
 
 function decode(base64: string): Uint8Array {
@@ -79,6 +79,19 @@ export default function ScanResultScreen() {
         setInvDate(formatDate(result.date) || todayStr());
         setInvAmount((result.amount || '').replace(/[^\d.,]/g, '').replace(',', '.'));
         setInvCompany(result.company || '');
+
+        // Pre-fill document fields too, in case category is utility/insurance/other
+        setDocDate(formatDate(result.date) || todayStr());
+        if (result.category === 'utility') {
+          setDocName(result.type || 'Strømfaktura');
+          setDocType('Strømfaktura');
+        } else if (result.category === 'insurance') {
+          setDocName(result.company || result.type || 'Forsikring');
+          setDocType('Forsikring');
+        } else {
+          setDocName(result.type || 'Dokument');
+          setDocType('Annet');
+        }
       } else if (result.docType === 'device') {
         setDevName(result.deviceName || 'Ny enhet');
         setDevBrand(result.brand || '');
@@ -113,6 +126,9 @@ export default function ScanResultScreen() {
     return '';
   }
 
+  // Determine effective save-target for invoice docType
+  const invoiceGoesToDocuments = invCategory === 'utility' || invCategory === 'insurance' || invCategory === 'other';
+
   const uploadImage = async (userId: string): Promise<string> => {
     if (!imageBase64) return '';
     try {
@@ -143,17 +159,29 @@ export default function ScanResultScreen() {
     const photoUrl = await uploadImage(user.id);
 
     if (scanResult?.docType === 'invoice') {
-      const cost = invAmount ? parseFloat(invAmount) : null;
-      await supabase.from('maintenance_records').insert({
-        property_id: propertyId,
-        title: invTitle,
-        date: invDate,
-        cost,
-        category: invCategory,
-        notes: invCompany ? `Firma: ${invCompany}` : '',
-        source: 'scan',
-        photo_url: photoUrl,
-      });
+      if (invoiceGoesToDocuments) {
+        // Strøm, forsikring, annet → Documents
+        await supabase.from('documents').insert({
+          property_id: propertyId,
+          name: docName || invTitle,
+          type: docType,
+          date: invDate,
+          file_url: photoUrl,
+        });
+      } else {
+        // Vedlikehold / Renovering → Maintenance
+        const cost = invAmount ? parseFloat(invAmount) : null;
+        await supabase.from('maintenance_records').insert({
+          property_id: propertyId,
+          title: invTitle,
+          date: invDate,
+          cost,
+          category: invCategory,
+          notes: invCompany ? `Firma: ${invCompany}` : '',
+          source: 'scan',
+          photo_url: photoUrl,
+        });
+      }
     } else if (scanResult?.docType === 'device') {
       const currentYear = new Date().getFullYear();
       const status = devWarranty && parseInt(devWarranty) < currentYear ? 'warn' : 'good';
@@ -185,13 +213,24 @@ export default function ScanResultScreen() {
   if (!scanResult) return <View style={styles.safe}><ActivityIndicator color={Colors.accent} /></View>;
 
   if (saved) {
-    const destination = scanResult.docType === 'invoice'
-      ? (scanResult.category === 'utility' ? '/(tabs)/energy' : '/maintenance')
-      : scanResult.docType === 'device' ? '/(tabs)/devices' : '/documents';
+    let destination = '/maintenance';
+    let destLabel = 'Vedlikehold';
 
-    const destLabel = scanResult.docType === 'invoice'
-      ? (scanResult.category === 'utility' ? 'Energi' : 'Vedlikehold')
-      : scanResult.docType === 'device' ? 'Enheter' : 'Dokumenter';
+    if (scanResult.docType === 'invoice') {
+      if (invoiceGoesToDocuments) {
+        destination = '/documents';
+        destLabel = 'Dokumenter';
+      } else {
+        destination = '/maintenance';
+        destLabel = 'Vedlikehold';
+      }
+    } else if (scanResult.docType === 'device') {
+      destination = '/(tabs)/devices';
+      destLabel = 'Enheter';
+    } else if (scanResult.docType === 'document') {
+      destination = '/documents';
+      destLabel = 'Dokumenter';
+    }
 
     return (
       <SafeAreaView style={styles.safe}>
@@ -228,14 +267,15 @@ export default function ScanResultScreen() {
           <View style={styles.aiCardHeader}>
             <View style={styles.aiIcon}>
               <Text style={{ fontSize: 22 }}>
-                {scanResult.docType === 'invoice' ? '📄' : scanResult.docType === 'device' ? '🔧' : '📋'}
+                {scanResult.docType === 'invoice' ? (invoiceGoesToDocuments ? '📋' : '📄') : scanResult.docType === 'device' ? '🔧' : '📋'}
               </Text>
             </View>
             <View>
               <Text style={styles.aiLabel}>AI OPPDAGET</Text>
               <Text style={styles.aiType}>
-                {scanResult.docType === 'invoice' ? 'Faktura / Kvittering' :
-                 scanResult.docType === 'device' ? 'Husholdningsapparat' : 'Boligdokument'}
+                {scanResult.docType === 'invoice'
+                  ? (invoiceGoesToDocuments ? 'Boligdokument' : 'Faktura / Kvittering')
+                  : scanResult.docType === 'device' ? 'Husholdningsapparat' : 'Boligdokument'}
               </Text>
             </View>
           </View>
@@ -248,8 +288,8 @@ export default function ScanResultScreen() {
           </View>
         </View>
 
-        {/* INVOICE FORM */}
-        {scanResult.docType === 'invoice' && (
+        {/* INVOICE → MAINTENANCE FORM */}
+        {scanResult.docType === 'invoice' && !invoiceGoesToDocuments && (
           <View style={styles.formBox}>
             <Text style={styles.formTitle}>✏️ Kontroller og lagre i Vedlikehold</Text>
 
@@ -278,9 +318,39 @@ export default function ScanResultScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.destHint}>
-              → {invCategory === 'utility' ? 'Lagres i Energi' : 'Lagres i Vedlikehold'}
-            </Text>
+            <Text style={styles.destHint}>→ Lagres i Vedlikehold</Text>
+          </View>
+        )}
+
+        {/* INVOICE → DOCUMENTS FORM (utility/insurance/other) */}
+        {scanResult.docType === 'invoice' && invoiceGoesToDocuments && (
+          <View style={styles.formBox}>
+            <Text style={styles.formTitle}>✏️ Kontroller og lagre i Dokumenter</Text>
+
+            <Text style={styles.inputLabel}>Dokumentnavn</Text>
+            <TextInput style={styles.input} value={docName} onChangeText={setDocName} placeholderTextColor={Colors.textMuted} />
+
+            <Text style={styles.inputLabel}>Type</Text>
+            <View style={styles.chips}>
+              {DOC_TYPES.map(dt => (
+                <TouchableOpacity key={dt} onPress={() => setDocType(dt)} style={[styles.chip, docType === dt && styles.chipActive]}>
+                  <Text style={[styles.chipText, docType === dt && styles.chipTextActive]}>{dt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>Dato</Text>
+            <TextInput style={styles.input} value={invDate} onChangeText={setInvDate} placeholder="2024-01-01" placeholderTextColor={Colors.textMuted} />
+
+            <Text style={styles.inputLabel}>Kategori (for AI-klassifisering)</Text>
+            <View style={styles.chips}>
+              {Object.entries(categoryLabels).map(([key, label]) => (
+                <TouchableOpacity key={key} onPress={() => setInvCategory(key)} style={[styles.chip, invCategory === key && styles.chipActive]}>
+                  <Text style={[styles.chipText, invCategory === key && styles.chipTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.destHint}>→ Lagres i Dokumenter</Text>
           </View>
         )}
 

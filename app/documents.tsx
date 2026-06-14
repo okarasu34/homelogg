@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, TextInput, Modal, ActivityIndicator, Image,
+  StyleSheet, TextInput, Modal, ActivityIndicator, Image, Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
 import { Colors, Radius, Shadow } from '../src/constants/theme';
 import { Card, Tag, BackButton } from '../src/components/UI';
 import { useLang } from '../src/lib/LangContext';
@@ -21,15 +20,32 @@ interface Document {
   created_at: string;
 }
 
-const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
+const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Strømfaktura', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
 const DOC_ICONS: Record<string, string> = {
-  'Skjøte': '📋', 'Forsikring': '🛡️', 'Energisertifikat': '⚡',
+  'Skjøte': '📋', 'Forsikring': '🛡️', 'Energisertifikat': '⚡', 'Strømfaktura': '⚡',
   'Brukstillatelse': '🏛️', 'Byggetillatelse': '🏗️', 'Annet': '📄',
 };
 const DOC_COLORS: Record<string, string> = {
-  'Skjøte': Colors.purple, 'Forsikring': Colors.accent, 'Energisertifikat': Colors.gold,
+  'Skjøte': Colors.purple, 'Forsikring': Colors.accent, 'Energisertifikat': Colors.gold, 'Strømfaktura': Colors.gold,
   'Brukstillatelse': Colors.blue, 'Byggetillatelse': Colors.orange, 'Annet': Colors.textSub,
 };
+
+function decode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// Cross-platform image preview component
+function PreviewImage({ uri, style }: { uri: string; style: any }) {
+  if (Platform.OS === 'web') {
+    return <img src={uri} style={{ width: '100%', height: style.height, borderRadius: style.borderRadius, objectFit: 'contain', backgroundColor: '#f5f4f0' }} />;
+  }
+  return <Image source={{ uri }} style={style} resizeMode="contain" />;
+}
 
 export default function DocumentsScreen() {
   const { t } = useLang();
@@ -55,6 +71,27 @@ export default function DocumentsScreen() {
   };
 
   const pickFile = async () => {
+    if (Platform.OS === 'web') {
+      // Use HTML file input on web for reliability
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e: any) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          setFileBase64(result.split(',')[1]);
+          setFileName(file.name);
+          setFileType(file.type || 'image/jpeg');
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       base64: true, quality: 0.8,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -86,9 +123,12 @@ export default function DocumentsScreen() {
     let fileUrl = '';
     if (fileBase64) {
       const filePath = `${user.id}/${Date.now()}_${fileName}`;
-      const { data: uploadData } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, decode(fileBase64), { contentType: fileType });
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+      }
       if (uploadData) {
         const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
         fileUrl = urlData.publicUrl;
@@ -202,7 +242,9 @@ export default function DocumentsScreen() {
               <Text style={styles.fileBtnText}>{fileName || '📎 Velg bilde eller fil'}</Text>
             </TouchableOpacity>
             {fileBase64 ? (
-              <Image source={{ uri: `data:image/jpeg;base64,${fileBase64}` }} style={styles.preview} resizeMode="cover" />
+              <View style={{ marginTop: 10 }}>
+                <PreviewImage uri={`data:${fileType || 'image/jpeg'};base64,${fileBase64}`} style={{ height: 160, borderRadius: Radius.md }} />
+              </View>
             ) : null}
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
@@ -215,7 +257,7 @@ export default function DocumentsScreen() {
       {/* Preview Modal */}
       <Modal visible={!!previewDoc} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalSafe}>
-          <View style={styles.modalContent}>
+          <ScrollView contentContainerStyle={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{previewDoc?.name}</Text>
               <TouchableOpacity onPress={() => setPreviewDoc(null)}>
@@ -233,7 +275,9 @@ export default function DocumentsScreen() {
             </View>
 
             {previewDoc?.file_url ? (
-              <Image source={{ uri: previewDoc.file_url }} style={styles.previewFull} resizeMode="contain" />
+              <View style={{ marginTop: 16 }}>
+                <PreviewImage uri={previewDoc.file_url} style={{ height: 300, borderRadius: Radius.md }} />
+              </View>
             ) : (
               <View style={styles.noPreview}>
                 <Text style={{ fontSize: 40 }}>{DOC_ICONS[previewDoc?.type || ''] || '📄'}</Text>
@@ -244,20 +288,11 @@ export default function DocumentsScreen() {
             <TouchableOpacity style={styles.deleteBtn} onPress={() => previewDoc && handleDelete(previewDoc.id)}>
               <Text style={styles.deleteBtnText}>🗑️ Slett dokument</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
-}
-
-function decode(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
 }
 
 const styles = StyleSheet.create({
@@ -303,13 +338,11 @@ const styles = StyleSheet.create({
   chipTextActive: { color: '#fff', fontWeight: '700' },
   fileBtn: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12, alignItems: 'center' },
   fileBtnText: { color: Colors.textSub, fontSize: 13 },
-  preview: { width: '100%', height: 160, borderRadius: Radius.md, marginTop: 10 },
   saveBtn: { backgroundColor: Colors.accent, borderRadius: Radius.lg, paddingVertical: 15, alignItems: 'center', marginTop: 24, ...Shadow.md },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   previewInfo: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.border },
   previewInfoLabel: { color: Colors.textSub, fontSize: 13 },
   previewInfoValue: { color: Colors.text, fontSize: 13, fontWeight: '700' },
-  previewFull: { width: '100%', height: 300, borderRadius: Radius.md, marginTop: 16 },
   noPreview: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   noPreviewText: { color: Colors.textMuted, fontSize: 13 },
   deleteBtn: { backgroundColor: Colors.dangerLight, borderRadius: Radius.lg, paddingVertical: 14, alignItems: 'center', marginTop: 24, borderWidth: 1, borderColor: '#f5c5c0' },
