@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator, TextInput,
+  StyleSheet, ActivityIndicator, TextInput, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow } from '../src/constants/theme';
-import { Card, BackButton } from '../src/components/UI';
+import { BackButton } from '../src/components/UI';
 import { useLang } from '../src/lib/LangContext';
 import { supabase } from '../src/lib/supabase';
 import { ScanResult } from '../src/lib/openai';
@@ -22,6 +22,15 @@ const categoryLabels: Record<string, string> = {
 const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
 const DEVICE_ICONS = ['🔥', '❄️', '🫧', '👕', '🍳', '💡', '🚿', '🔌', '📡', '🛁'];
 
+function decode(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 async function getOrCreateProperty(userId: string) {
   const { data: property } = await supabase.from('properties').select('id').eq('user_id', userId).single();
   if (property) return property.id;
@@ -36,6 +45,7 @@ export default function ScanResultScreen() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [imageBase64, setImageBase64] = useState('');
 
   // Invoice fields
   const [invCategory, setInvCategory] = useState('maintenance');
@@ -58,6 +68,9 @@ export default function ScanResultScreen() {
 
   useEffect(() => {
     const result = (global as any).__scanResult as ScanResult | undefined;
+    const img = (global as any).__scanImageBase64 as string | undefined;
+    if (img) setImageBase64(img);
+
     if (result) {
       setScanResult(result);
       if (result.docType === 'invoice') {
@@ -100,6 +113,25 @@ export default function ScanResultScreen() {
     return '';
   }
 
+  const uploadImage = async (userId: string): Promise<string> => {
+    if (!imageBase64) return '';
+    try {
+      const filePath = `${userId}/${Date.now()}_scan.jpg`;
+      const { data: uploadData, error } = await supabase.storage
+        .from('documents')
+        .upload(filePath, decode(imageBase64), { contentType: 'image/jpeg' });
+      if (error) {
+        console.error('Upload error:', error);
+        return '';
+      }
+      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
+      return urlData.publicUrl;
+    } catch (e) {
+      console.error('Upload exception:', e);
+      return '';
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -107,6 +139,8 @@ export default function ScanResultScreen() {
 
     const propertyId = await getOrCreateProperty(user.id);
     if (!propertyId) { setSaving(false); return; }
+
+    const photoUrl = await uploadImage(user.id);
 
     if (scanResult?.docType === 'invoice') {
       const cost = invAmount ? parseFloat(invAmount) : null;
@@ -118,6 +152,7 @@ export default function ScanResultScreen() {
         category: invCategory,
         notes: invCompany ? `Firma: ${invCompany}` : '',
         source: 'scan',
+        photo_url: photoUrl,
       });
     } else if (scanResult?.docType === 'device') {
       const currentYear = new Date().getFullYear();
@@ -137,12 +172,14 @@ export default function ScanResultScreen() {
         name: docName,
         type: docType,
         date: docDate,
+        file_url: photoUrl,
       });
     }
 
     setSaving(false);
     setSaved(true);
     delete (global as any).__scanResult;
+    delete (global as any).__scanImageBase64;
   };
 
   if (!scanResult) return <View style={styles.safe}><ActivityIndicator color={Colors.accent} /></View>;
@@ -180,6 +217,11 @@ export default function ScanResultScreen() {
           <BackButton onPress={() => router.back()} />
           <Text style={styles.title}>{t.scanSuccess}</Text>
         </View>
+
+        {/* Image preview */}
+        {imageBase64 ? (
+          <Image source={{ uri: `data:image/jpeg;base64,${imageBase64}` }} style={styles.imagePreview} resizeMode="cover" />
+        ) : null}
 
         {/* AI Detection banner */}
         <View style={styles.aiCard}>
@@ -319,6 +361,8 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 22 },
   title: { color: Colors.text, fontSize: 20, fontWeight: '900' },
+
+  imagePreview: { width: '100%', height: 180, borderRadius: Radius.xl, marginBottom: 14, backgroundColor: Colors.surface },
 
   aiCard: { backgroundColor: '#e8f5ef', borderWidth: 1, borderColor: '#b8e0cc', borderRadius: Radius.xl, padding: 18, marginBottom: 14 },
   aiCardHeader: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 14 },

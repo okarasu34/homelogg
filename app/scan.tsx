@@ -14,10 +14,10 @@ export default function ScanScreen() {
     setStatus('AI analyserer dokumentet...');
     const scanResult = await scanDocument(base64);
     (global as any).__scanResult = scanResult;
+    (global as any).__scanImageBase64 = base64;
     router.replace('/scan-result');
   };
 
-  // WEB: use native file input with capture attribute
   const handleWebPick = (useCamera: boolean) => {
     if (!fileInputRef.current) return;
     if (useCamera) {
@@ -42,7 +42,6 @@ export default function ScanScreen() {
     reader.readAsDataURL(file);
   };
 
-  // NATIVE (iOS/Android)
   const handleNativePick = async (fromCamera: boolean) => {
     setScanning(true);
     setStatus(fromCamera ? 'Åpner kamera...' : 'Åpner galleri...');
