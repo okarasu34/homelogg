@@ -7,11 +7,6 @@ import { Card, Tag, SectionLabel } from '../../src/components/UI';
 import { useLang } from '../../src/lib/LangContext';
 import { supabase } from '../../src/lib/supabase';
 
-const homeScore = 847;
-const energyScore = 78;
-const maintenanceScore = 95;
-const docsScore = 71;
-
 function energyGrade(s: number) {
   if (s >= 90) return 'A';
   if (s >= 75) return 'B';
@@ -26,19 +21,40 @@ export default function HomeScreen() {
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [boligType, setBoligType] = useState('');
+  const [maintenanceCount, setMaintenanceCount] = useState(0);
+  const [documentCount, setDocumentCount] = useState(0);
+  const [deviceCount, setDeviceCount] = useState(0);
+  const [energyScore] = useState(78);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        const meta = user.user_metadata || {};
-        const fullName = meta.full_name || user.email?.split('@')[0] || '';
-        setFirstName(fullName.split(' ')[0]);
-        setAddress(meta.address || '');
-        setCity(meta.postanummer ? `${meta.postanummer} Oslo` : 'Norge');
-        setBoligType(meta.bolig_type || '');
-      }
-    });
+    loadData();
   }, []);
+
+  const loadData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const meta = user.user_metadata || {};
+    const fullName = meta.full_name || user.email?.split('@')[0] || '';
+    setFirstName(fullName.split(' ')[0]);
+    setAddress(meta.address || '');
+    setCity(meta.postanummer ? `${meta.postanummer} Oslo` : 'Norge');
+    setBoligType(meta.bolig_type || '');
+
+    const [maint, docs, devs] = await Promise.all([
+      supabase.from('maintenance_records').select('id', { count: 'exact', head: true }),
+      supabase.from('documents').select('id', { count: 'exact', head: true }),
+      supabase.from('devices').select('id', { count: 'exact', head: true }),
+    ]);
+
+    setMaintenanceCount(maint.count || 0);
+    setDocumentCount(docs.count || 0);
+    setDeviceCount(devs.count || 0);
+  };
+
+  const homeScore = Math.min(600 + maintenanceCount * 30 + documentCount * 20 + deviceCount * 15, 1000);
+  const maintenanceScore = Math.min(50 + maintenanceCount * 15, 100);
+  const docsScore = Math.min(documentCount * 14, 100);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -134,9 +150,9 @@ export default function HomeScreen() {
         <View style={styles.grid}>
           {[
             { label: t.energyScore, value: `${energyScore}/100`, grade: energyGrade(energyScore), bg: Colors.accentLight, color: Colors.accent, icon: '⚡', route: '/energy' },
-            { label: t.maintenanceScore, value: `${maintenanceScore}/100`, grade: 'A+', bg: Colors.orangeLight, color: Colors.orange, icon: '🔧', route: '/maintenance' },
-            { label: t.documents, value: `${docsScore}/100`, grade: 'B', bg: Colors.goldLight, color: Colors.gold, icon: '📋', route: '/documents' },
-            { label: t.devices, value: `4 ${t.registered}`, grade: '1 ⚠️', bg: Colors.warnLight, color: Colors.warn, icon: '📱', route: '/devices' },
+            { label: t.maintenanceScore, value: `${maintenanceScore}/100`, grade: maintenanceCount > 5 ? 'A+' : maintenanceCount > 2 ? 'A' : 'B', bg: Colors.orangeLight, color: Colors.orange, icon: '🔧', route: '/maintenance' },
+            { label: t.documents, value: `${docsScore}/100`, grade: documentCount > 5 ? 'A' : documentCount > 2 ? 'B' : 'C', bg: Colors.goldLight, color: Colors.gold, icon: '📋', route: '/documents' },
+            { label: t.devices, value: `${deviceCount} ${t.registered}`, grade: deviceCount > 0 ? '✓' : '—', bg: Colors.warnLight, color: Colors.warn, icon: '📱', route: '/devices' },
           ].map((item, i) => (
             <Card key={i} style={styles.statCard} onPress={() => router.push(item.route as any)}>
               <View style={styles.statCardTop}>

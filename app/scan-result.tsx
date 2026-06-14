@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +19,9 @@ const categoryLabels: Record<string, string> = {
   other: 'Annet',
 };
 
+const DOC_TYPES = ['Skjøte', 'Forsikring', 'Energisertifikat', 'Brukstillatelse', 'Byggetillatelse', 'Annet'];
+const DEVICE_ICONS = ['🔥', '❄️', '🫧', '👕', '🍳', '💡', '🚿', '🔌', '📡', '🛁'];
+
 async function getOrCreateProperty(userId: string) {
   const { data: property } = await supabase.from('properties').select('id').eq('user_id', userId).single();
   if (property) return property.id;
@@ -32,76 +35,108 @@ export default function ScanResultScreen() {
   const { t } = useLang();
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('maintenance');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
+  // Invoice fields
+  const [invCategory, setInvCategory] = useState('maintenance');
+  const [invTitle, setInvTitle] = useState('');
+  const [invDate, setInvDate] = useState('');
+  const [invAmount, setInvAmount] = useState('');
+  const [invCompany, setInvCompany] = useState('');
+
+  // Device fields
+  const [devName, setDevName] = useState('');
+  const [devBrand, setDevBrand] = useState('');
+  const [devInstalled, setDevInstalled] = useState('');
+  const [devWarranty, setDevWarranty] = useState('');
+  const [devIcon, setDevIcon] = useState('🔧');
+
+  // Document fields
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('Annet');
+  const [docDate, setDocDate] = useState('');
+
   useEffect(() => {
-    const result = (global as any).__scanResult;
+    const result = (global as any).__scanResult as ScanResult | undefined;
     if (result) {
       setScanResult(result);
-      setSelectedCategory(result.category || 'maintenance');
+      if (result.docType === 'invoice') {
+        setInvCategory(result.category || 'maintenance');
+        setInvTitle(result.type || 'Faktura');
+        setInvDate(formatDate(result.date) || todayStr());
+        setInvAmount((result.amount || '').replace(/[^\d.,]/g, '').replace(',', '.'));
+        setInvCompany(result.company || '');
+      } else if (result.docType === 'device') {
+        setDevName(result.deviceName || 'Ny enhet');
+        setDevBrand(result.brand || '');
+        setDevInstalled(result.installedYear || new Date().getFullYear().toString());
+        const warrantyYear = new Date().getFullYear() + (result.warrantyYears || 2);
+        setDevWarranty(warrantyYear.toString());
+      } else if (result.docType === 'document') {
+        setDocName(result.docName || 'Dokument');
+        setDocType(result.docCategory || 'Annet');
+        setDocDate(formatDate(result.date) || todayStr());
+      }
     } else {
-      setScanResult({
-        type: 'Faktura — Rørleggerservice',
-        company: 'Rørlegger Hansen AS',
-        date: '14.03.2024',
-        amount: 'kr 4 890',
-        category: 'maintenance',
-        confidence: 97,
-      });
+      setScanResult({ docType: 'invoice', type: 'Faktura', category: 'maintenance', confidence: 50 });
+      setInvTitle('Faktura');
+      setInvDate(todayStr());
+      setInvCategory('maintenance');
     }
   }, []);
 
-  const handleSave = async () => {
-    if (!scanResult) return;
-    setSaving(true);
+  function todayStr() {
+    return new Date().toISOString().split('T')[0];
+  }
 
+  function formatDate(d?: string) {
+    if (!d) return '';
+    const m = d.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+    if (m) {
+      let [, day, month, year] = m;
+      if (year.length === 2) year = '20' + year;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    return '';
+  }
+
+  const handleSave = async () => {
+    setSaving(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setSaving(false); return; }
 
     const propertyId = await getOrCreateProperty(user.id);
     if (!propertyId) { setSaving(false); return; }
 
-    const costMatch = scanResult.amount?.match(/[\d\s,.]+/);
-    const cost = costMatch ? parseFloat(costMatch[0].replace(/\s/g, '').replace(',', '.')) : null;
-
-    if (selectedCategory === 'utility') {
-      // Enerji sekmesine — maintenance_records'a utility olarak kaydet
+    if (scanResult?.docType === 'invoice') {
+      const cost = invAmount ? parseFloat(invAmount) : null;
       await supabase.from('maintenance_records').insert({
         property_id: propertyId,
-        title: scanResult.type || 'Strømfaktura',
-        date: scanResult.date || new Date().toISOString().split('T')[0],
+        title: invTitle,
+        date: invDate,
         cost,
-        category: 'utility',
-        notes: scanResult.company ? `Leverandør: ${scanResult.company}` : '',
+        category: invCategory,
+        notes: invCompany ? `Firma: ${invCompany}` : '',
         source: 'scan',
       });
-    } else if (selectedCategory === 'insurance') {
-      // Dokumenter sekmesine
+    } else if (scanResult?.docType === 'device') {
+      const currentYear = new Date().getFullYear();
+      const status = devWarranty && parseInt(devWarranty) < currentYear ? 'warn' : 'good';
+      await supabase.from('devices').insert({
+        property_id: propertyId,
+        name: devName,
+        brand: devBrand,
+        installed_year: devInstalled,
+        warranty_until: devWarranty,
+        status,
+        icon: devIcon,
+      });
+    } else if (scanResult?.docType === 'document') {
       await supabase.from('documents').insert({
         property_id: propertyId,
-        name: scanResult.company || 'Forsikring',
-        type: 'Forsikring',
-        date: scanResult.date || new Date().toISOString().split('T')[0],
-      });
-    } else if (selectedCategory === 'other') {
-      // Dokumenter sekmesine
-      await supabase.from('documents').insert({
-        property_id: propertyId,
-        name: scanResult.type || 'Dokument',
-        type: 'Annet',
-        date: scanResult.date || new Date().toISOString().split('T')[0],
-      });
-    } else {
-      // maintenance / renovation → Vedlikehold
-      await supabase.from('maintenance_records').insert({
-        property_id: propertyId,
-        title: scanResult.type || 'Vedlikehold',
-        date: scanResult.date || new Date().toISOString().split('T')[0],
-        cost,
-        category: selectedCategory,
-        notes: scanResult.company ? `Firma: ${scanResult.company}` : '',
-        source: 'scan',
+        name: docName,
+        type: docType,
+        date: docDate,
       });
     }
 
@@ -113,24 +148,22 @@ export default function ScanResultScreen() {
   if (!scanResult) return <View style={styles.safe}><ActivityIndicator color={Colors.accent} /></View>;
 
   if (saved) {
-    const destination = ['utility'].includes(selectedCategory)
-      ? '/(tabs)/energy'
-      : ['insurance', 'other'].includes(selectedCategory)
-      ? '/documents'
-      : '/maintenance';
+    const destination = scanResult.docType === 'invoice'
+      ? (scanResult.category === 'utility' ? '/(tabs)/energy' : '/maintenance')
+      : scanResult.docType === 'device' ? '/(tabs)/devices' : '/documents';
+
+    const destLabel = scanResult.docType === 'invoice'
+      ? (scanResult.category === 'utility' ? 'Energi' : 'Vedlikehold')
+      : scanResult.docType === 'device' ? 'Enheter' : 'Dokumenter';
 
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.savedWrap}>
           <Text style={{ fontSize: 64, marginBottom: 16 }}>✅</Text>
           <Text style={styles.savedTitle}>{t.savedSuccess}</Text>
-          <Text style={styles.savedSub}>
-            {selectedCategory === 'utility' ? 'Lagt til i Energi' :
-             ['insurance','other'].includes(selectedCategory) ? 'Lagt til i Dokumenter' :
-             'Lagt til i Vedlikehold'}
-          </Text>
+          <Text style={styles.savedSub}>Lagt til i {destLabel}</Text>
           <TouchableOpacity style={styles.homeBtn} onPress={() => router.replace(destination as any)}>
-            <Text style={styles.homeBtnText}>Gå dit →</Text>
+            <Text style={styles.homeBtnText}>Gå til {destLabel} →</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.homeBtnSecondary} onPress={() => router.replace('/(tabs)')}>
             <Text style={styles.homeBtnSecondaryText}>{t.backHome}</Text>
@@ -148,29 +181,22 @@ export default function ScanResultScreen() {
           <Text style={styles.title}>{t.scanSuccess}</Text>
         </View>
 
-        <View style={styles.resultCard}>
-          <View style={styles.resultCardHeader}>
-            <View style={styles.resultIcon}>
-              <Text style={{ fontSize: 22 }}>📄</Text>
+        {/* AI Detection banner */}
+        <View style={styles.aiCard}>
+          <View style={styles.aiCardHeader}>
+            <View style={styles.aiIcon}>
+              <Text style={{ fontSize: 22 }}>
+                {scanResult.docType === 'invoice' ? '📄' : scanResult.docType === 'device' ? '🔧' : '📋'}
+              </Text>
             </View>
             <View>
               <Text style={styles.aiLabel}>AI OPPDAGET</Text>
-              <Text style={styles.resultType}>{scanResult.type}</Text>
+              <Text style={styles.aiType}>
+                {scanResult.docType === 'invoice' ? 'Faktura / Kvittering' :
+                 scanResult.docType === 'device' ? 'Husholdningsapparat' : 'Boligdokument'}
+              </Text>
             </View>
           </View>
-          {[
-            { label: t.scanCompany, value: scanResult.company },
-            { label: t.scanDate, value: scanResult.date },
-            { label: t.scanAmount, value: scanResult.amount },
-          ].filter(r => r.value).map((row, i, arr) => (
-            <View key={i} style={[styles.resultRow, i < arr.length - 1 && styles.resultRowBorder]}>
-              <Text style={styles.resultLabel}>{row.label}</Text>
-              <Text style={styles.resultValue}>{row.value}</Text>
-            </View>
-          ))}
-        </View>
-
-        <Card style={styles.confidenceCard}>
           <View style={styles.confidenceRow}>
             <Text style={styles.confidenceLabel}>{t.aiConfidence}</Text>
             <Text style={styles.confidenceVal}>{scanResult.confidence}%</Text>
@@ -178,29 +204,100 @@ export default function ScanResultScreen() {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${scanResult.confidence}%` as any }]} />
           </View>
-        </Card>
-
-        <View style={styles.categoryBox}>
-          <Text style={styles.categoryTitle}>✏️ {t.categoryLabel}</Text>
-          <View style={styles.categoryChips}>
-            {Object.entries(categoryLabels).map(([key, label]) => (
-              <TouchableOpacity
-                key={key}
-                onPress={() => setSelectedCategory(key)}
-                style={[styles.chip, selectedCategory === key && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, selectedCategory === key && styles.chipTextActive]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={styles.categoryHint}>
-            {selectedCategory === 'utility' ? '→ Lagres i Energi' :
-             ['insurance','other'].includes(selectedCategory) ? '→ Lagres i Dokumenter' :
-             '→ Lagres i Vedlikehold'}
-          </Text>
         </View>
+
+        {/* INVOICE FORM */}
+        {scanResult.docType === 'invoice' && (
+          <View style={styles.formBox}>
+            <Text style={styles.formTitle}>✏️ Kontroller og lagre i Vedlikehold</Text>
+
+            <Text style={styles.inputLabel}>Tittel</Text>
+            <TextInput style={styles.input} value={invTitle} onChangeText={setInvTitle} placeholderTextColor={Colors.textMuted} />
+
+            <Text style={styles.inputLabel}>Firma</Text>
+            <TextInput style={styles.input} value={invCompany} onChangeText={setInvCompany} placeholder="Firmanavn" placeholderTextColor={Colors.textMuted} />
+
+            <View style={styles.row}>
+              <View style={styles.half}>
+                <Text style={styles.inputLabel}>Dato</Text>
+                <TextInput style={styles.input} value={invDate} onChangeText={setInvDate} placeholder="2024-03-14" placeholderTextColor={Colors.textMuted} />
+              </View>
+              <View style={styles.half}>
+                <Text style={styles.inputLabel}>Beløp (kr)</Text>
+                <TextInput style={styles.input} value={invAmount} onChangeText={setInvAmount} placeholder="4890" placeholderTextColor={Colors.textMuted} keyboardType="numeric" />
+              </View>
+            </View>
+
+            <Text style={styles.inputLabel}>Kategori</Text>
+            <View style={styles.chips}>
+              {Object.entries(categoryLabels).map(([key, label]) => (
+                <TouchableOpacity key={key} onPress={() => setInvCategory(key)} style={[styles.chip, invCategory === key && styles.chipActive]}>
+                  <Text style={[styles.chipText, invCategory === key && styles.chipTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.destHint}>
+              → {invCategory === 'utility' ? 'Lagres i Energi' : 'Lagres i Vedlikehold'}
+            </Text>
+          </View>
+        )}
+
+        {/* DEVICE FORM */}
+        {scanResult.docType === 'device' && (
+          <View style={styles.formBox}>
+            <Text style={styles.formTitle}>✏️ Kontroller og lagre i Enheter</Text>
+
+            <Text style={styles.inputLabel}>Enhetsnavn</Text>
+            <TextInput style={styles.input} value={devName} onChangeText={setDevName} placeholderTextColor={Colors.textMuted} />
+
+            <Text style={styles.inputLabel}>Merke</Text>
+            <TextInput style={styles.input} value={devBrand} onChangeText={setDevBrand} placeholder="f.eks. Bosch" placeholderTextColor={Colors.textMuted} />
+
+            <View style={styles.row}>
+              <View style={styles.half}>
+                <Text style={styles.inputLabel}>Installert år</Text>
+                <TextInput style={styles.input} value={devInstalled} onChangeText={setDevInstalled} keyboardType="numeric" maxLength={4} placeholderTextColor={Colors.textMuted} />
+              </View>
+              <View style={styles.half}>
+                <Text style={styles.inputLabel}>Garanti til</Text>
+                <TextInput style={styles.input} value={devWarranty} onChangeText={setDevWarranty} keyboardType="numeric" maxLength={4} placeholderTextColor={Colors.textMuted} />
+              </View>
+            </View>
+
+            <Text style={styles.inputLabel}>Ikon</Text>
+            <View style={styles.iconGrid}>
+              {DEVICE_ICONS.map(icon => (
+                <TouchableOpacity key={icon} onPress={() => setDevIcon(icon)} style={[styles.iconBtn, devIcon === icon && styles.iconBtnActive]}>
+                  <Text style={{ fontSize: 20 }}>{icon}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.destHint}>→ Lagres i Enheter</Text>
+          </View>
+        )}
+
+        {/* DOCUMENT FORM */}
+        {scanResult.docType === 'document' && (
+          <View style={styles.formBox}>
+            <Text style={styles.formTitle}>✏️ Kontroller og lagre i Dokumenter</Text>
+
+            <Text style={styles.inputLabel}>Dokumentnavn</Text>
+            <TextInput style={styles.input} value={docName} onChangeText={setDocName} placeholderTextColor={Colors.textMuted} />
+
+            <Text style={styles.inputLabel}>Type</Text>
+            <View style={styles.chips}>
+              {DOC_TYPES.map(dt => (
+                <TouchableOpacity key={dt} onPress={() => setDocType(dt)} style={[styles.chip, docType === dt && styles.chipActive]}>
+                  <Text style={[styles.chipText, docType === dt && styles.chipTextActive]}>{dt}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>Dato</Text>
+            <TextInput style={styles.input} value={docDate} onChangeText={setDocDate} placeholder="2024-01-01" placeholderTextColor={Colors.textMuted} />
+            <Text style={styles.destHint}>→ Lagres i Dokumenter</Text>
+          </View>
+        )}
 
         <View style={styles.actions}>
           <TouchableOpacity style={styles.rescanBtn} onPress={() => router.replace('/scan')}>
@@ -222,34 +319,40 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 22 },
   title: { color: Colors.text, fontSize: 20, fontWeight: '900' },
-  resultCard: { backgroundColor: '#e8f5ef', borderWidth: 1, borderColor: '#b8e0cc', borderRadius: Radius.xl, padding: 20, marginBottom: 14 },
-  resultCardHeader: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 16 },
-  resultIcon: { width: 48, height: 48, backgroundColor: Colors.accent, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+
+  aiCard: { backgroundColor: '#e8f5ef', borderWidth: 1, borderColor: '#b8e0cc', borderRadius: Radius.xl, padding: 18, marginBottom: 14 },
+  aiCardHeader: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 14 },
+  aiIcon: { width: 44, height: 44, backgroundColor: Colors.accent, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   aiLabel: { color: Colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  resultType: { color: Colors.text, fontSize: 15, fontWeight: '800' },
-  resultRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
-  resultRowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.07)' },
-  resultLabel: { color: Colors.textSub, fontSize: 13 },
-  resultValue: { color: Colors.text, fontSize: 13, fontWeight: '700' },
-  confidenceCard: { padding: 14, marginBottom: 16 },
-  confidenceRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  confidenceLabel: { color: Colors.textSub, fontSize: 12, fontWeight: '600' },
-  confidenceVal: { color: Colors.accent, fontSize: 12, fontWeight: '800' },
-  progressTrack: { height: 6, backgroundColor: Colors.border, borderRadius: 3 },
+  aiType: { color: Colors.text, fontSize: 15, fontWeight: '800' },
+  confidenceRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  confidenceLabel: { color: Colors.textSub, fontSize: 11, fontWeight: '600' },
+  confidenceVal: { color: Colors.accent, fontSize: 11, fontWeight: '800' },
+  progressTrack: { height: 5, backgroundColor: 'rgba(0,0,0,0.08)', borderRadius: 3 },
   progressFill: { height: '100%', backgroundColor: Colors.accent, borderRadius: 3 },
-  categoryBox: { backgroundColor: Colors.goldLight, borderWidth: 1, borderColor: '#e8d88a', borderRadius: 14, padding: 14, marginBottom: 20 },
-  categoryTitle: { color: Colors.gold, fontSize: 12, fontWeight: '800', marginBottom: 10 },
-  categoryChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.full, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border },
+
+  formBox: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.xl, padding: 16, marginBottom: 20 },
+  formTitle: { color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 14 },
+  inputLabel: { fontSize: 11, fontWeight: '700', color: Colors.textSub, marginBottom: 6, marginTop: 10 },
+  input: { backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.md, padding: 12, fontSize: 14, color: Colors.text },
+  row: { flexDirection: 'row', gap: 10 },
+  half: { flex: 1 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: Radius.full, backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.border },
   chipActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
   chipText: { color: Colors.textSub, fontSize: 12, fontWeight: '600' },
   chipTextActive: { color: '#fff', fontWeight: '700' },
-  categoryHint: { color: Colors.accent, fontSize: 11, fontWeight: '700' },
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  iconBtn: { width: 42, height: 42, borderRadius: 10, backgroundColor: Colors.bg, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  iconBtnActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent },
+  destHint: { color: Colors.accent, fontSize: 11, fontWeight: '700', marginTop: 12 },
+
   actions: { flexDirection: 'row', gap: 10 },
   rescanBtn: { flex: 1, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   rescanText: { color: Colors.text, fontSize: 13, fontWeight: '700' },
   saveBtn: { flex: 2, backgroundColor: Colors.accent, borderRadius: 14, paddingVertical: 14, alignItems: 'center', ...Shadow.md },
   saveBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+
   savedWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   savedTitle: { color: Colors.accent, fontSize: 22, fontWeight: '900', marginBottom: 8 },
   savedSub: { color: Colors.textSub, fontSize: 14, marginBottom: 24 },

@@ -1,17 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { Colors, Radius, Shadow } from '../src/constants/theme';
-import { useLang } from '../src/lib/LangContext';
+import { Colors, Shadow } from '../src/constants/theme';
 import { scanDocument } from '../src/lib/openai';
 
 export default function ScanScreen() {
-  const { t } = useLang();
   const [scanning, setScanning] = useState(false);
   const [status, setStatus] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handlePick = async (fromCamera: boolean) => {
+  const processBase64 = async (base64: string) => {
+    setStatus('AI analyserer dokumentet...');
+    const scanResult = await scanDocument(base64);
+    (global as any).__scanResult = scanResult;
+    router.replace('/scan-result');
+  };
+
+  // WEB: use native file input with capture attribute
+  const handleWebPick = (useCamera: boolean) => {
+    if (!fileInputRef.current) return;
+    if (useCamera) {
+      fileInputRef.current.setAttribute('capture', 'environment');
+    } else {
+      fileInputRef.current.removeAttribute('capture');
+    }
+    fileInputRef.current.click();
+  };
+
+  const onWebFileChange = (e: any) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanning(true);
+    setStatus('Leser fil...');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      await processBase64(base64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // NATIVE (iOS/Android)
+  const handleNativePick = async (fromCamera: boolean) => {
     setScanning(true);
     setStatus(fromCamera ? 'Åpner kamera...' : 'Åpner galleri...');
     try {
@@ -29,10 +61,7 @@ export default function ScanScreen() {
       }
 
       if (!result.canceled && result.assets[0].base64) {
-        setStatus('AI analyserer dokumentet...');
-        const scanResult = await scanDocument(result.assets[0].base64);
-        (global as any).__scanResult = scanResult;
-        router.replace('/scan-result');
+        await processBase64(result.assets[0].base64);
       } else {
         setScanning(false);
         setStatus('');
@@ -44,15 +73,33 @@ export default function ScanScreen() {
     }
   };
 
+  const handlePick = (useCamera: boolean) => {
+    if (Platform.OS === 'web') {
+      handleWebPick(useCamera);
+    } else {
+      handleNativePick(useCamera);
+    }
+  };
+
   return (
     <View style={styles.container}>
+      {Platform.OS === 'web' && (
+        <input
+          ref={fileInputRef as any}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={onWebFileChange}
+        />
+      )}
+
       <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
         <Text style={styles.backArrow}>←</Text>
       </TouchableOpacity>
 
       <View style={styles.content}>
         <Text style={styles.headerTitle}>📄 Skann dokument</Text>
-        <Text style={styles.headerSub}>Ta bilde av en faktura eller kvittering</Text>
+        <Text style={styles.headerSub}>Ta bilde av faktura, enhet eller dokument</Text>
 
         <View style={styles.frame}>
           {[{ top: -2, left: -2 }, { top: -2, right: -2 }, { bottom: -2, left: -2 }, { bottom: -2, right: -2 }].map((pos, i) => (
@@ -64,7 +111,7 @@ export default function ScanScreen() {
               <Text style={styles.frameHint}>{status}</Text>
             </View>
           ) : (
-            <Text style={styles.frameHint}>AI leser dokumentet automatisk</Text>
+            <Text style={styles.frameHint}>AI gjenkjenner automatisk{'\n'}fakturaer, enheter og dokumenter</Text>
           )}
         </View>
 
@@ -79,7 +126,7 @@ export default function ScanScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.note}>Støtter fakturaer, kvitteringer og forsikringsdokumenter</Text>
+        <Text style={styles.note}>Støtter fakturaer, kvitteringer, apparatetiketter og dokumenter</Text>
       </View>
     </View>
   );
@@ -91,10 +138,10 @@ const styles = StyleSheet.create({
   backArrow: { color: '#fff', fontSize: 18 },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '900', marginBottom: 6 },
-  headerSub: { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 32 },
+  headerSub: { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 32, textAlign: 'center' },
   frame: { width: 280, height: 320, borderWidth: 1.5, borderColor: 'rgba(74,222,128,0.6)', borderRadius: 16, alignItems: 'center', justifyContent: 'center', position: 'relative', marginBottom: 32 },
   corner: { position: 'absolute', width: 22, height: 22, borderColor: '#4ade80', borderTopWidth: 3, borderLeftWidth: 3 },
-  frameHint: { color: 'rgba(255,255,255,0.4)', fontSize: 12, textAlign: 'center', paddingHorizontal: 20 },
+  frameHint: { color: 'rgba(255,255,255,0.4)', fontSize: 12, textAlign: 'center', paddingHorizontal: 20, lineHeight: 18 },
   btnRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
   btn: { backgroundColor: Colors.accent, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 28, alignItems: 'center', gap: 6, ...Shadow.md },
   btnSecondary: { backgroundColor: Colors.accentLight },
